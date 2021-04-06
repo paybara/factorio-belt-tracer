@@ -23,7 +23,7 @@ Only the belts *relevant to the selected belt* are traced. Meaning only belts wh
 * Better colors.
 * GUI, e.g. an extra panel when you click on a belt, with a button to trace it and maybe some other info. (Like it should be able to list the current belt content, if that'd be useful.)
 
-Bug reports, suggestions or pull requests welcome :-)
+Bug reports, suggestions or pull requests welcome in [discussions](https://github.com/paybara/factorio-belt-tracer/discussions) :-)
 
 ## Edge cases
 * I think I've covered multiplayer correctly, but haven't tested it.
