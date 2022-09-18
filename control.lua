@@ -24,12 +24,39 @@ local function is_pipe(e)
 end
 
 local global_prefix = "paybara-belt-tracer-"
-local function global_ids(p) 
-    return global_prefix..p.name.."-ids"
+
+local function global_entities(player)
+    return global_prefix..player.name.."-entities"
 end
 
--- Draw a line between two entities, on surface s, visible to player p.
-local function draw_line(from, to, s, p, dashed)
+local function destroy_all_entities(entities)
+    if entities == nil then return end
+    for _, e in pairs(entities) do
+        e.destroy()
+    end
+end
+
+local function clear_all(player)
+    local p_entities = global_entities(player)
+    destroy_all_entities(global[p_entities])
+    global[p_entities] = {}
+end
+
+local function get_trace_entity(player, s, pos)
+    local pos_str = position_to_string(pos)
+    e = global[global_entities(player)][pos_str]
+    if e == nil then
+        e = s.create_entity({
+            name = 'paybara-belttracer-trace',
+            position = pos,
+        })
+        global[global_entities(player)][pos_str] = e
+    end
+    return e
+end
+
+-- Draw a line between two entities, on surface s, visible to player.
+local function draw_line(from, to, s, player, dashed)
     local dash = 0
     local gap = 0
     if dashed then
@@ -37,6 +64,10 @@ local function draw_line(from, to, s, p, dashed)
         dash = 0.1
         gap = 0.2
     end
+    -- Get or create hidden entities at each end of the line and draw the line attached to them.
+    -- That way the trace gets cleaned up if the mod is disabled.
+    from = get_trace_entity(player, s, from.position)
+    to = get_trace_entity(player, s, to.position)
     local id = rendering.draw_line({
         ["from"]=from,
         ["to"]=to,
@@ -44,19 +75,17 @@ local function draw_line(from, to, s, p, dashed)
         ["color"] = {1, 1, 1}, --white
         ["width"] = 1, -- pixels
         ["surface"]=s,  -- Draw on whatever surface the belts are on.
-        ["players"]={p}, -- Only draw for the current player
+        ["players"]={player}, -- Only draw for the current player
         ["dash_length"]=dash,
         ["gap_length"]=gap
     })
-    -- Save the ID in the global table so it can be cleaned up later.
-    global[global_ids(p)][id] = true
-    -- TODO: Figure out how to associate the lines with this mod, so they're removed at load time
-    -- if the mod is removed. I might need my own hidden entities associated with each line, rather than
-    -- attaching them directly to the entities on the map? I should check what bottleneck does...
 end
 
--- Draw a small circle on entitie e, on surface s, visible to player p.
-local function draw_circle(e, s, p)
+-- Draw a small circle on entity e, on surface s, visible to player.
+local function draw_circle(e, s, player)
+    -- Get or create a hidden entity at this location and draw the circle attached to it.
+    -- That way the trace gets cleaned up if the mod is disabled.
+    e = get_trace_entity(player, s, e.position)
     local id = rendering.draw_circle({
         ["target"]=e,
         ["radius"]=.3,
@@ -65,10 +94,8 @@ local function draw_circle(e, s, p)
         ["width"] = 1, -- pixels
         ["filled"] = false,
         ["surface"]=s,  -- Draw on whatever surface the belts are on.
-        ["players"]={p}, -- Only draw for the current player
+        ["players"]={player}, -- Only draw for the current player
     })
-    -- Save the ID in the global table so it can be cleaned up later.
-    global[global_ids(p)][id] = true
 end
 
 -- The string key for a table of finished belts or pipes.
@@ -99,11 +126,11 @@ local function trace_belt(p, e)
             local next_pass = {}
             local num_next = 0
             keep_going = false
-            for _, e in pairs(to_be_walked) do
+            for _, edge in pairs(to_be_walked) do
                 -- Get the belts that are connected to this one as inputs or outputs (depending on which pass we're doing).
-                for _, n in pairs(e.belt_neighbours[in_out]) do
+                for _, n in pairs(edge.belt_neighbours[in_out]) do
                     -- p.print(in_out.." belt_neighbor "..n.name.." at "..position_to_string(n.position))
-                    draw_line(e, n, s, p, false)
+                    draw_line(edge, n, s, p, false)
                     if finished[finishkey(n)] == nil then
                         num_next = num_next + 1
                         next_pass[num_next] = n
@@ -114,12 +141,12 @@ local function trace_belt(p, e)
                 --
                 -- Trace to the other end of underground belts no matter whether we're following inputs or outputs.
                 -- If one end of an underground belt was an input then the other end is too. Same for output.
-                if e.type == 'underground-belt' then
-                    local n = e.neighbours
+                if edge.type == 'underground-belt' then
+                    local n = edge.neighbours
                     if n ~= nil then
                         -- p.print("neighbor "..n.name.." at "..position_to_string(n.position))
                         if finished[finishkey(n)] == nil then
-                            draw_line(e, n, s, p, true) -- dashed
+                            draw_line(edge, n, s, p, true) -- dashed
                             num_next = num_next + 1
                             next_pass[num_next] = n
                             finished[finishkey(n)] = true
@@ -157,12 +184,11 @@ end
 local function trace_pipe(p, e) 
     local s = e.surface
 
-    -- Leave a circle at the selected tile so you can see where you traced from.
-    draw_circle(e, s, p)
+    local started = false
 
     local num_entities = 1
     local num_steps = 1
-    
+
     local to_be_walked = {e}
     local finished = {[finishkey(e)]=true}
     local keep_going = true
@@ -171,6 +197,13 @@ local function trace_pipe(p, e)
         local num_next = 0
         keep_going = false
         for _, e in pairs(to_be_walked) do
+            if not started then
+                -- Leave a circle at the selected tile so you can see where you traced from.
+                -- draw_circle(trace, s, p)
+                draw_circle(e, s, p)
+                started = true
+            end
+
             -- For belt-connected entities, neighbors is "an array of entity arrays of all entities a given fluidbox is connected to."
             for _, ns in pairs(e.neighbours) do
                 for _, n in pairs(ns) do
@@ -178,9 +211,10 @@ local function trace_pipe(p, e)
                     if e.type == "pipe-to-ground" and n.type == "pipe-to-ground" then
                         dashed = true
                     end
-                    if finished[finishkey(n)] == nil or not dashed then
+                    if not dashed or finished[finishkey(n)] == nil then
                         -- Draw lines even if we've already visited entities to fill in grids of pipes or tanks.
                         -- Just don't double-draw dashed lines, as that can mess them up.
+                        -- draw_line(trace, n, s, p, dashed)
                         draw_line(e, n, s, p, dashed)
                     end
                     if finished[finishkey(n)] == nil then
@@ -190,7 +224,7 @@ local function trace_pipe(p, e)
                             next_pass[num_next] = n
                             finished[finishkey(n)] = true
                         end
-                    end                    
+                    end
                 end
             end
         end
@@ -199,9 +233,9 @@ local function trace_pipe(p, e)
             keep_going = true
             num_steps = num_steps + 1
             num_entities = num_entities + num_next
-            p.print("Step "..num_steps.." found "..num_next.." new belts.")
-        else
-            p.print("Finished in "..num_steps.." steps.")
+        --     p.print("Step "..num_steps.." found "..num_next.." new belts.")
+        -- else
+        --     p.print("Finished in "..num_steps.." steps.")
         end
     end
 end
@@ -210,20 +244,22 @@ end
 -- This is the main handler function, it runs whenever the trace action is triggered.
 script.on_event('paybara:trace-belt', function(event)
     local p = game.players[event.player_index]
+    local e = p.selected
+
+    -- if e then
+    --     for _, over in pairs(e.surface.find_entities_filtered({position = e.position})) do
+    --         p.print("over entity "..over.name.." of type "..over.type)
+    --     end
+    -- end
 
     -- Remove any previous trace first, regardless of what you're hovering over.
-    if global[(global_ids(p))] ~= nil then
-        for id, _ in pairs(global[global_ids(p)]) do
-            rendering.destroy(id)
-        end
-    end
-    global[global_ids(p)] = {}
+    clear_all(p)
 
-    local e = p.selected
     if not e then
         -- p.print('not over anything')
         return
     end
+
     if is_transport_line(e) then
         trace_belt(p, e)
         return
@@ -232,5 +268,5 @@ script.on_event('paybara:trace-belt', function(event)
         trace_pipe(p, e)
         return
     end
-    p.print('not a belt. name: '..e.name..' type: '..e.type)
+    -- p.print('not a belt. name: '..e.name..' type: '..e.type)
 end)

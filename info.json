@@ -4,8 +4,8 @@
   "factorio_version": "1.1",
   "title": "Belt Tracer",
   "author": "paybara",
-  "contact": "",
-  "homepage": "",
+  "contact": "https://github.com/paybara/factorio-belt-tracer/discussions",
+  "homepage": "https://github.com/paybara/factorio-belt-tracer",
   "description": "Highlight belts to trace them through the spaghetti",
   "dependencies": [
     "base >= 1.1.0"
