@@ -4,10 +4,17 @@ This is a simple mod for factorio to trace a belt through your base. Just hover 
 
 Only the belts whose items might pass through the belt you selected, or might have passed through it, will be traced. For example, it won't trace a branch upstream that went in a different direction.
 
+## Screenshots
+
+![4-to-4_1](/Screenshots/4-to-4_1.jpg)
+![4-to-4_2](/Screenshots/4-to-4_2.jpg)
+![Pipes](/Screenshots/Pipes.jpg)
+![8-to-8_1](/Screenshots/8-to-8_1.jpg)
+![8-to-8_2](/Screenshots/8-to-8_2.jpg)
+![Modded](/Screenshots/Modded.jpg)
+
 ## TODO before launch
 
-* Add screenshots
-* Make public
 * Upload to mod portal
 
 ## Known/suspected issues
