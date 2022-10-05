@@ -13,10 +13,6 @@ Only the belts whose items might pass through the belt you selected, or might ha
 ![8-to-8_2](/Screenshots/8-to-8_2.jpg)
 ![Modded](/Screenshots/Modded.jpg)
 
-## TODO before launch
-
-* Upload to mod portal
-
 ## Known/suspected issues
 * Traces aren't removed if you remove the belts under them.
 * I've not attempted to make this scalable, it currently traces the whole belt in the handler. It traces O(1000) length belts without a hiccup but I haven't tried it on a megabase.
