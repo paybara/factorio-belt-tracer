@@ -14,7 +14,7 @@ local function is_transport_line(e)
 end
 
 local function is_pipe(e)
-    local pipe_types = {'pipe', 'pipe-to-ground', 'storage-tank', 'pump', 'offshore-pump', 'generator', 'boiler'}
+    local pipe_types = {'pipe', 'pipe-to-ground', 'storage-tank', 'pump', 'offshore-pump', 'generator', 'boiler', 'fluid-turret'}
     for _,pipe_type in pairs(pipe_types) do
         if e.type == pipe_type then
             return true
@@ -103,7 +103,7 @@ local function finishkey(entity)
     return position_to_string(entity.position)
 end
 
-local function trace_belt(p, e)
+local function trace_belt(p, e, verbose)
     local s = e.surface
 
     -- Leave a circle at the selected tile so you can see where you traced from.
@@ -160,13 +160,12 @@ local function trace_belt(p, e)
                 num_steps = num_steps + 1
                 num_entities = num_entities + num_next
                 -- p.print("Step "..num_steps.." found "..num_next.." new belts.")
-            -- else
-            --     p.print("Finished in "..num_steps.." steps.")
             end
         end
     end
-    -- TODO: Put the print statements behind a verbose setting.
-    -- p.print("Traced "..num_entities.." belts in "..num_steps.." steps.")
+    if verbose then
+        p.print("Traced "..num_entities.." belts in "..num_steps.." steps.")
+    end
     -- TODO: Play a sound when the trace completes?
 end
 
@@ -181,7 +180,7 @@ end
 -- if they're connected to separate ports on entites that allow multiple inputs/outputs but don't flow between them.
 -- I haven't found how the game distinguishes between these, but it does - boilers and steam engines have an icon for bi-di flow,
 -- and e.g. chemical plants have icons for only input and only output.
-local function trace_pipe(p, e) 
+local function trace_pipe(p, e, verbose) 
     local s = e.surface
 
     local started = false
@@ -234,9 +233,10 @@ local function trace_pipe(p, e)
             num_steps = num_steps + 1
             num_entities = num_entities + num_next
         --     p.print("Step "..num_steps.." found "..num_next.." new belts.")
-        -- else
-        --     p.print("Finished in "..num_steps.." steps.")
         end
+    end
+    if verbose then
+        p.print("Traced "..num_entities.." pipes in "..num_steps.." steps.")
     end
 end
 
@@ -245,12 +245,13 @@ end
 script.on_event('paybara:trace-belt', function(event)
     local p = game.players[event.player_index]
     local e = p.selected
+    local verbose = settings.get_player_settings(event.player_index)["belttracer-verbose-logging"].value
 
-    -- if e then
-    --     for _, over in pairs(e.surface.find_entities_filtered({position = e.position})) do
-    --         p.print("over entity "..over.name.." of type "..over.type)
-    --     end
-    -- end
+    if e and verbose then
+        for _, over in pairs(e.surface.find_entities_filtered({position = e.position})) do
+            p.print("Over entity "..over.name.." of type "..over.type)
+        end
+    end
 
     -- Remove any previous trace first, regardless of what you're hovering over.
     clear_all(p)
@@ -261,12 +262,14 @@ script.on_event('paybara:trace-belt', function(event)
     end
 
     if is_transport_line(e) then
-        trace_belt(p, e)
+        trace_belt(p, e, verbose)
         return
     end
     if is_pipe(e) then
-        trace_pipe(p, e)
+        trace_pipe(p, e, verbose)
         return
     end
-    -- p.print('not a belt. name: '..e.name..' type: '..e.type)
+    if verbose then
+        p.print('Not over a belt or pipe. name: '..e.name..' type: '..e.type)
+    end
 end)
