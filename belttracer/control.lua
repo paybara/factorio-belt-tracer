@@ -1,32 +1,26 @@
-
 local function position_to_string(p)
-    return '['..p.x..','..p.y..']'
+    return '[' .. p.x .. ',' .. p.y .. ']'
 end
 
 local function is_transport_line(e)
-    local belt_types = {'transport-belt', 'splitter', 'underground-belt'}
-    for _,belt_type in pairs(belt_types) do
+    local belt_types = { 'transport-belt', 'splitter', 'underground-belt' }
+    for _, belt_type in pairs(belt_types) do
         if e.type == belt_type then
             return true
         end
     end
-    return false  
+    return false
 end
 
 local function is_pipe(e)
-    local pipe_types = {'pipe', 'pipe-to-ground', 'storage-tank', 'pump', 'offshore-pump', 'generator', 'boiler', 'fluid-turret'}
-    for _,pipe_type in pairs(pipe_types) do
-        if e.type == pipe_type then
-            return true
-        end
-    end
-    return false  
+    -- If it has a fluid box then we can trace it.
+    return #(e.fluidbox) > 0
 end
 
 local global_prefix = "paybara-belt-tracer-"
 
 local function global_entities(player)
-    return global_prefix..player.name.."-entities"
+    return global_prefix .. player.name .. "-entities"
 end
 
 local function destroy_all_entities(entities)
@@ -69,15 +63,15 @@ local function draw_line(from, to, s, player, dashed)
     from = get_trace_entity(player, s, from.position)
     to = get_trace_entity(player, s, to.position)
     local id = rendering.draw_line({
-        ["from"]=from,
-        ["to"]=to,
+        ["from"] = from,
+        ["to"] = to,
         -- TODO: Customize colors.
-        ["color"] = {1, 1, 1}, --white
+        ["color"] = { 1, 1, 1 }, --white
         ["width"] = 1, -- pixels
-        ["surface"]=s,  -- Draw on whatever surface the belts are on.
-        ["players"]={player}, -- Only draw for the current player
-        ["dash_length"]=dash,
-        ["gap_length"]=gap
+        ["surface"] = s, -- Draw on whatever surface the belts are on.
+        ["players"] = { player }, -- Only draw for the current player
+        ["dash_length"] = dash,
+        ["gap_length"] = gap
     })
 end
 
@@ -87,14 +81,14 @@ local function draw_circle(e, s, player)
     -- That way the trace gets cleaned up if the mod is disabled.
     e = get_trace_entity(player, s, e.position)
     local id = rendering.draw_circle({
-        ["target"]=e,
-        ["radius"]=.3,
+        ["target"] = e,
+        ["radius"] = .3,
         -- TODO: Customize colors.
-        ["color"] = {1, 1, 1}, --white
+        ["color"] = { 1, 1, 1 }, --white
         ["width"] = 1, -- pixels
         ["filled"] = false,
-        ["surface"]=s,  -- Draw on whatever surface the belts are on.
-        ["players"]={player}, -- Only draw for the current player
+        ["surface"] = s, -- Draw on whatever surface the belts are on.
+        ["players"] = { player }, -- Only draw for the current player
     })
 end
 
@@ -115,12 +109,12 @@ local function trace_belt(p, e, verbose)
     -- Trace belts twice: once following inputs, the other following outputs.
     -- (If you trace both directions in a single path, you'll start tracing other outputs of your input,
     -- and other inputs downstream of your output, neither of which are reachable from the selected belt.)
-    for _, in_out in pairs({"inputs", "outputs"}) do
+    for _, in_out in pairs({ "inputs", "outputs" }) do
         -- Start from the selected entity both times.
-        local to_be_walked = {e}
+        local to_be_walked = { e }
         -- Clear the finished list between passes:
         -- if something is both an input and an output it needs to be traversed both times.
-        local finished = {[finishkey(e)]=true}
+        local finished = { [finishkey(e)] = true }
         local keep_going = true
         while keep_going do
             local next_pass = {}
@@ -164,82 +158,133 @@ local function trace_belt(p, e, verbose)
         end
     end
     if verbose then
-        p.print("Traced "..num_entities.." belts in "..num_steps.." steps.")
+        p.print("Traced " .. num_entities .. " belts in " .. num_steps .. " steps.")
     end
     -- TODO: Play a sound when the trace completes?
 end
 
--- Traces pipes and other entities that hold fluid by walking their 'neighbours'
---
--- TODO: Consider only walking fluid boxes that have a matching locked fluid.
--- For instance, this will avoid jumping between steam and water in boilers.
--- This might let us relax the extra is_pipe check on recursion: if we can save the input fluid box/index,
--- we can look for any other fluid boxes with the same fluid and keep walking them.
--- This should let us expand this to mods that let fluids flow through other entities, like Industrial Revolution.
--- But done naively it might make us jump between systems that are actually disconnected,
--- if they're connected to separate ports on entites that allow multiple inputs/outputs but don't flow between them.
--- I haven't found how the game distinguishes between these, but it does - boilers and steam engines have an icon for bi-di flow,
--- and e.g. chemical plants have icons for only input and only output.
-local function trace_pipe(p, e, verbose) 
+local function box_index(fb, i)
+    local ret = {}
+    ret["fb"] = fb
+    ret["i"] = i
+    return ret
+end
+
+-- For debugging: print a concise description of a FluidBox object
+-- local function fbToStr(fb)
+--     local str = #(fb) .. " boxes in " .. fb.owner.name .. ": "
+--     for i = 1, #(fb) do
+--         local fluid = ""
+--         local lockedFluid = fb.get_locked_fluid(i)
+--         if lockedFluid ~= nil then
+--             fluid = "(" .. lockedFluid .. ")"
+--         end
+--         local conns = fb.get_connections(i)
+--         local connStr = ""
+--         if #(conns) == 0 then
+--             connStr = "nothing"
+--         else
+--             connStr = "["
+--             for j = 1, #(conns) do
+--                 if j > 1 then
+--                     connStr = connStr .. ","
+--                 end
+--                 connStr = connStr .. conns[j].owner.name
+--             end
+--             connStr = connStr .. "]"
+--         end
+--         str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
+--     end
+--     return str
+-- end
+
+-- trace_pipe traces pipes and other entities that hold fluid by walking their fluidbox connections.
+local function trace_pipe(p, e, verbose)
     local s = e.surface
 
-    local started = false
+    -- Leave a circle at the selected tile so you can see where you traced from.
+    draw_circle(e, s, p)
+
+    local fb = e.fluidbox
+
+    -- Gather all of the fluid boxes of the selected entity. Start tracing from each box.
+    --
+    -- Only trace each fluid _system_ once from the starting entity.
+    -- e.g. if something is connected to the same fluid system via multiple connections
+    -- (like both outputs from a chem plant or a pipe looping back on itself)
+    -- then tracing each system once is sufficient.
+    local fluid_systems = {}
+    for i = 1, #(fb) do
+        local system = fb.get_fluid_system_id(i)
+        if system ~= nil and fluid_systems[system] == nil then
+            fluid_systems[system] = i
+        end
+    end
 
     local num_entities = 1
     local num_steps = 1
 
-    local to_be_walked = {e}
-    local finished = {[finishkey(e)]=true}
-    local keep_going = true
-    while keep_going do
-        local next_pass = {}
-        local num_next = 0
-        keep_going = false
-        for _, e in pairs(to_be_walked) do
-            if not started then
-                -- Leave a circle at the selected tile so you can see where you traced from.
-                -- draw_circle(trace, s, p)
-                draw_circle(e, s, p)
-                started = true
-            end
+    -- Trace each fluid system from the fluid box in the original entity.
+    for system, i in pairs(fluid_systems) do
+        local finished = { [finishkey(fb.owner)] = true }
+        -- to_be_walked and next_pass are arrays of structs containing the elements:
+        --   "fb" (for fluidbox)
+        --   "i" (for index, since the fluidbox is itself an array.)
+        local to_be_walked = { box_index(fb, i) }
+        local keep_going = true
+        -- while keep_going and num_steps < 3 do
+        while keep_going do
+            keep_going = false
+            local next_pass = {}
+            local num_next = 0
+            for _, fbi in pairs(to_be_walked) do
+                -- For each fluidbox+index that still needs to be walked...
+                local fb = fbi.fb
+                local from = fb.owner
 
-            -- For belt-connected entities, neighbors is "an array of entity arrays of all entities a given fluidbox is connected to."
-            for _, ns in pairs(e.neighbours) do
-                for _, n in pairs(ns) do
+                -- p.print("Tracing #" .. fbi.i .. " of " .. fbToStr(fb))
+
+                -- Get all of that box's connections.
+                for _, connFB in pairs(fb.get_connections(fbi.i)) do
+                    local to = connFB.owner
+
+                    -- Draw a line from the entity owning this fluid box to each connection.
+                    -- Queue each fluidbox+index that we haven't visited yet to be walked next pass.
                     local dashed = false
-                    if e.type == "pipe-to-ground" and n.type == "pipe-to-ground" then
+                    if from.type == "pipe-to-ground" and to.type == "pipe-to-ground" then
                         dashed = true
                     end
-                    if not dashed or finished[finishkey(n)] == nil then
-                        -- Draw lines even if we've already visited entities to fill in grids of pipes or tanks.
+                    if not dashed or finished[finishkey(to)] == nil then
+                        -- Draw lines even if we've already visited entities, to fill in grids of pipes or tanks.
                         -- Just don't double-draw dashed lines, as that can mess them up.
-                        -- draw_line(trace, n, s, p, dashed)
-                        draw_line(e, n, s, p, dashed)
+                        draw_line(from, to, s, p, dashed)
                     end
-                    if finished[finishkey(n)] == nil then
-                        -- Pipes can be connected to non-pipes, like assemblers. Draw lines to assemblers but don't recurse into them.
-                        if is_pipe(n) then
-                            num_next = num_next + 1
-                            next_pass[num_next] = n
-                            finished[finishkey(n)] = true
+                    if finished[finishkey(to)] == nil then
+                        for j = 1, #(connFB) do
+                            if connFB.get_fluid_system_id(j) == system then
+                                -- connFB is all the fluid boxes in the connected entity, trace all of its fluid boxes in the same system.
+                                num_next = num_next + 1
+                                next_pass[num_next] = box_index(connFB, j)
+                                -- p.print("Next: #" .. j .. " of " .. fbToStr(connFB))
+                            end
                         end
+                        finished[finishkey(to)] = true
                     end
                 end
             end
-        end
-        if num_next > 0 then
-            to_be_walked = next_pass
-            keep_going = true
-            num_steps = num_steps + 1
-            num_entities = num_entities + num_next
-        --     p.print("Step "..num_steps.." found "..num_next.." new belts.")
+            if num_next > 0 then
+                to_be_walked = next_pass
+                keep_going = true
+                num_steps = num_steps + 1
+                num_entities = num_entities + num_next
+            end
         end
     end
+
     if verbose then
-        p.print("Traced "..num_entities.." pipes in "..num_steps.." steps.")
+        p.print("Traced " .. num_entities .. " pipes in " .. num_steps .. " steps.")
     end
 end
-
 
 -- This is the main handler function, it runs whenever the trace action is triggered.
 script.on_event('paybara:trace-belt', function(event)
@@ -248,8 +293,8 @@ script.on_event('paybara:trace-belt', function(event)
     local verbose = settings.get_player_settings(event.player_index)["belttracer-verbose-logging"].value
 
     if e and verbose then
-        for _, over in pairs(e.surface.find_entities_filtered({position = e.position})) do
-            p.print("Over entity "..over.name.." of type "..over.type)
+        for _, over in pairs(e.surface.find_entities_filtered({ position = e.position })) do
+            p.print("Over entity " .. over.name .. " of type " .. over.type)
         end
     end
 
@@ -270,6 +315,6 @@ script.on_event('paybara:trace-belt', function(event)
         return
     end
     if verbose then
-        p.print('Not over a belt or pipe. name: '..e.name..' type: '..e.type)
+        p.print('Not over a belt or pipe. name: ' .. e.name .. ' type: ' .. e.type)
     end
 end)

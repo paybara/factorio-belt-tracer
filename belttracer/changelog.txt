@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2022.11.12
+  Features:
+    - Tracing pipes now works through any entity that can carry, use or produce fluid.
+    - Traces can now be started from any entity that can carry, use or produce fluid.
+    - When starting a trace from an entity connected to multiple fluid networks, each network will be traced.
+    - When tracing into an entity connected to multiple fluid networks, only the network currently being traced will be followed.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
 Date: 2022.10.09
   Features:

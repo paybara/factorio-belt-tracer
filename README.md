@@ -14,14 +14,15 @@ Only the belts whose items might pass through the belt you selected, or might ha
 ![Modded](/Screenshots/Modded.jpg)
 
 ## Known/suspected issues
+
 * Traces aren't removed if you remove the belts under them.
 * I've not attempted to make this scalable, it currently traces the whole belt in the handler. It traces O(1000) length belts without a hiccup but I haven't tried it on a megabase.
-* When tracing pipes to boilers, both water and steam will be traced.
-* Other fluid-carrying entities (e.g. from mods) are unlikely to work.
 
 ## Potential improvements
+
 * Clear the current line when hovered over it.
 * Allow multiple highlights.
+* A continuous mode or tool that traces whatever it's hovered over.
 * Trace both sides of the belt separately.
 * Figure out how to show the trace on the map.
 * Update lines as belts are placed/removed.
@@ -34,4 +35,5 @@ Only the belts whose items might pass through the belt you selected, or might ha
 Bug reports, suggestions or pull requests welcome in [discussions](https://github.com/paybara/factorio-belt-tracer/discussions) :-)
 
 ## Edge cases
+
 * I think I've covered multiplayer correctly, but haven't tested it.
