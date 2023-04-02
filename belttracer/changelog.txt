@@ -1,6 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.1
+Date: 2023.04.02
+  Changes:
+    - Tracing pipes is more helpful when fluid systems are mixed: tracing stops when a fluid change is detected and the last step is highlighted in red.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.0
 Date: 2022.11.12
+  Changes:
+    - Pipe tracing has been overhauled to follow fluid boxes.
   Features:
     - Tracing pipes now works through any entity that can carry, use or produce fluid.
     - Traces can now be started from any entity that can carry, use or produce fluid.
