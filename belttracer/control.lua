@@ -173,32 +173,32 @@ local function box_index(fb, i)
 end
 
 -- For debugging: print a concise description of a FluidBox object
--- local function fbToStr(fb)
---     local str = #(fb) .. " boxes in " .. fb.owner.name .. ": "
---     for i = 1, #(fb) do
---         local fluid = ""
---         local lockedFluid = fb.get_locked_fluid(i)
---         if lockedFluid ~= nil then
---             fluid = "(" .. lockedFluid .. ")"
---         end
---         local conns = fb.get_connections(i)
---         local connStr = ""
---         if #(conns) == 0 then
---             connStr = "nothing"
---         else
---             connStr = "["
---             for j = 1, #(conns) do
---                 if j > 1 then
---                     connStr = connStr .. ","
---                 end
---                 connStr = connStr .. conns[j].owner.name
---             end
---             connStr = connStr .. "]"
---         end
---         str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
---     end
---     return str
--- end
+local function fbToStr(fb)
+    local str = #(fb) .. " boxes in " .. fb.owner.name .. ": "
+    for i = 1, #(fb) do
+        local fluid = ""
+        local lockedFluid = fb.get_locked_fluid(i)
+        if lockedFluid ~= nil then
+            fluid = "(" .. lockedFluid .. ")"
+        end
+        local conns = fb.get_connections(i)
+        local connStr = ""
+        if #(conns) == 0 then
+            connStr = "nothing"
+        else
+            connStr = "["
+            for j = 1, #(conns) do
+                if j > 1 then
+                    connStr = connStr .. ","
+                end
+                connStr = connStr .. conns[j].owner.name
+            end
+            connStr = connStr .. "]"
+        end
+        str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
+    end
+    return str
+end
 
 -- trace_pipe traces pipes and other entities that hold fluid by walking their fluidbox connections.
 local function trace_pipe(p, e, verbose)
@@ -216,11 +216,16 @@ local function trace_pipe(p, e, verbose)
     -- (like both outputs from a chem plant or a pipe looping back on itself)
     -- then tracing each system once is sufficient.
     local fluid_systems = {}
+    local num_systems = 0
     for i = 1, #(orig_fb) do
         local system = orig_fb.get_fluid_system_id(i)
         if system ~= nil and fluid_systems[system] == nil then
             fluid_systems[system] = i
+            num_systems = num_systems + 1
         end
+    end
+    if verbose then
+        p.print("Found " .. num_systems .. " different system(s) to trace.")
     end
 
     local num_entities = 1
@@ -232,7 +237,7 @@ local function trace_pipe(p, e, verbose)
         local finished = { [finishkey(orig_fb.owner)] = true }
         -- to_be_walked and next_pass are arrays of structs containing the elements:
         --   "fb" (for fluidbox)
-        --   "i" (for index, since the fluidbox is itself an array.)
+        --   "i" (for index into the fluidbox, since the fluidbox is itself an array.)
         local to_be_walked = { box_index(orig_fb, i) }
         local keep_going = true
         -- while keep_going and num_steps < 3 do
@@ -248,18 +253,25 @@ local function trace_pipe(p, e, verbose)
                 -- Record the name of the first fluid encountered, so we can highlight where fluids are mixing.
                 if fluid_name == "" and fb[fbi.i] ~= nil then
                     fluid_name = fb[fbi.i].name
+                    if verbose then
+                        p.print("Tracing #" .. fbi.i .. " of " .. fbToStr(fb) .. " with fluid " .. fluid_name)
+                    end
                 end
-
-                -- p.print("Tracing #" .. fbi.i .. " of " .. fbToStr(fb))
 
                 -- Get all of that box's connections.
                 for _, connFB in pairs(fb.get_connections(fbi.i)) do
                     local to = connFB.owner
                     local fluid_change = false
-                    for j = 1, #(connFB) do
-                        if connFB.get_fluid_system_id(j) == system and connFB[j] ~= nil and connFB[j].name ~= fluid_name then
-                            fluid_change = true
-                            break
+                    if fluid_name ~= "" then
+                        for j = 1, #(connFB) do
+                            if connFB.get_fluid_system_id(j) == system and connFB[j] ~= nil and connFB[j].name ~= fluid_name then
+                                fluid_change = true
+                                if verbose then
+                                    p.print("Detected fluid_change from " ..
+                                        fluid_name .. " to " .. connFB[j].name .. " at " .. to.name)
+                                end
+                                break
+                            end
                         end
                     end
 
