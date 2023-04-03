@@ -49,8 +49,10 @@ local function get_trace_entity(player, s, pos)
     return e
 end
 
+local white = { 1, 1, 1 }
+
 -- Draw a line between two entities, on surface s, visible to player.
-local function draw_line(from, to, s, player, dashed)
+local function draw_line(from, to, s, player, color, dashed)
     local dash = 0
     local gap = 0
     if dashed then
@@ -66,9 +68,9 @@ local function draw_line(from, to, s, player, dashed)
         ["from"] = from,
         ["to"] = to,
         -- TODO: Customize colors.
-        ["color"] = { 1, 1, 1 }, --white
-        ["width"] = 1, -- pixels
-        ["surface"] = s, -- Draw on whatever surface the belts are on.
+        ["color"] = color,
+        ["width"] = 1,            -- pixels
+        ["surface"] = s,          -- Draw on whatever surface the belts are on.
         ["players"] = { player }, -- Only draw for the current player
         ["dash_length"] = dash,
         ["gap_length"] = gap
@@ -84,10 +86,10 @@ local function draw_circle(e, s, player)
         ["target"] = e,
         ["radius"] = .3,
         -- TODO: Customize colors.
-        ["color"] = { 1, 1, 1 }, --white
-        ["width"] = 1, -- pixels
+        ["color"] = { 1, 1, 1 },  --white
+        ["width"] = 1,            -- pixels
         ["filled"] = false,
-        ["surface"] = s, -- Draw on whatever surface the belts are on.
+        ["surface"] = s,          -- Draw on whatever surface the belts are on.
         ["players"] = { player }, -- Only draw for the current player
     })
 end
@@ -124,7 +126,7 @@ local function trace_belt(p, e, verbose)
                 -- Get the belts that are connected to this one as inputs or outputs (depending on which pass we're doing).
                 for _, n in pairs(edge.belt_neighbours[in_out]) do
                     -- p.print(in_out.." belt_neighbor "..n.name.." at "..position_to_string(n.position))
-                    draw_line(edge, n, s, p, false)
+                    draw_line(edge, n, s, p, white, false)
                     if finished[finishkey(n)] == nil then
                         num_next = num_next + 1
                         next_pass[num_next] = n
@@ -140,7 +142,7 @@ local function trace_belt(p, e, verbose)
                     if n ~= nil then
                         -- p.print("neighbor "..n.name.." at "..position_to_string(n.position))
                         if finished[finishkey(n)] == nil then
-                            draw_line(edge, n, s, p, true) -- dashed
+                            draw_line(edge, n, s, p, white, true) -- dashed
                             num_next = num_next + 1
                             next_pass[num_next] = n
                             finished[finishkey(n)] = true
@@ -171,32 +173,32 @@ local function box_index(fb, i)
 end
 
 -- For debugging: print a concise description of a FluidBox object
--- local function fbToStr(fb)
---     local str = #(fb) .. " boxes in " .. fb.owner.name .. ": "
---     for i = 1, #(fb) do
---         local fluid = ""
---         local lockedFluid = fb.get_locked_fluid(i)
---         if lockedFluid ~= nil then
---             fluid = "(" .. lockedFluid .. ")"
---         end
---         local conns = fb.get_connections(i)
---         local connStr = ""
---         if #(conns) == 0 then
---             connStr = "nothing"
---         else
---             connStr = "["
---             for j = 1, #(conns) do
---                 if j > 1 then
---                     connStr = connStr .. ","
---                 end
---                 connStr = connStr .. conns[j].owner.name
---             end
---             connStr = connStr .. "]"
---         end
---         str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
---     end
---     return str
--- end
+local function fbToStr(fb)
+    local str = #(fb) .. " boxes in " .. fb.owner.name .. ": "
+    for i = 1, #(fb) do
+        local fluid = ""
+        local lockedFluid = fb.get_locked_fluid(i)
+        if lockedFluid ~= nil then
+            fluid = "(" .. lockedFluid .. ")"
+        end
+        local conns = fb.get_connections(i)
+        local connStr = ""
+        if #(conns) == 0 then
+            connStr = "nothing"
+        else
+            connStr = "["
+            for j = 1, #(conns) do
+                if j > 1 then
+                    connStr = connStr .. ","
+                end
+                connStr = connStr .. conns[j].owner.name
+            end
+            connStr = connStr .. "]"
+        end
+        str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
+    end
+    return str
+end
 
 -- trace_pipe traces pipes and other entities that hold fluid by walking their fluidbox connections.
 local function trace_pipe(p, e, verbose)
@@ -205,7 +207,7 @@ local function trace_pipe(p, e, verbose)
     -- Leave a circle at the selected tile so you can see where you traced from.
     draw_circle(e, s, p)
 
-    local fb = e.fluidbox
+    local orig_fb = e.fluidbox
 
     -- Gather all of the fluid boxes of the selected entity. Start tracing from each box.
     --
@@ -214,11 +216,16 @@ local function trace_pipe(p, e, verbose)
     -- (like both outputs from a chem plant or a pipe looping back on itself)
     -- then tracing each system once is sufficient.
     local fluid_systems = {}
-    for i = 1, #(fb) do
-        local system = fb.get_fluid_system_id(i)
+    local num_systems = 0
+    for i = 1, #(orig_fb) do
+        local system = orig_fb.get_fluid_system_id(i)
         if system ~= nil and fluid_systems[system] == nil then
             fluid_systems[system] = i
+            num_systems = num_systems + 1
         end
+    end
+    if verbose then
+        p.print("Found " .. num_systems .. " different system(s) to trace.")
     end
 
     local num_entities = 1
@@ -226,11 +233,12 @@ local function trace_pipe(p, e, verbose)
 
     -- Trace each fluid system from the fluid box in the original entity.
     for system, i in pairs(fluid_systems) do
-        local finished = { [finishkey(fb.owner)] = true }
+        local fluid_name = ""
+        local finished = { [finishkey(orig_fb.owner)] = true }
         -- to_be_walked and next_pass are arrays of structs containing the elements:
         --   "fb" (for fluidbox)
-        --   "i" (for index, since the fluidbox is itself an array.)
-        local to_be_walked = { box_index(fb, i) }
+        --   "i" (for index into the fluidbox, since the fluidbox is itself an array.)
+        local to_be_walked = { box_index(orig_fb, i) }
         local keep_going = true
         -- while keep_going and num_steps < 3 do
         while keep_going do
@@ -242,11 +250,30 @@ local function trace_pipe(p, e, verbose)
                 local fb = fbi.fb
                 local from = fb.owner
 
-                -- p.print("Tracing #" .. fbi.i .. " of " .. fbToStr(fb))
+                -- Record the name of the first fluid encountered, so we can highlight where fluids are mixing.
+                if fluid_name == "" and fb[fbi.i] ~= nil then
+                    fluid_name = fb[fbi.i].name
+                    if verbose then
+                        p.print("Tracing #" .. fbi.i .. " of " .. fbToStr(fb) .. " with fluid " .. fluid_name)
+                    end
+                end
 
                 -- Get all of that box's connections.
                 for _, connFB in pairs(fb.get_connections(fbi.i)) do
                     local to = connFB.owner
+                    local fluid_change = false
+                    if fluid_name ~= "" then
+                        for j = 1, #(connFB) do
+                            if connFB.get_fluid_system_id(j) == system and connFB[j] ~= nil and connFB[j].name ~= fluid_name then
+                                fluid_change = true
+                                if verbose then
+                                    p.print("Detected fluid_change from " ..
+                                        fluid_name .. " to " .. connFB[j].name .. " at " .. to.name)
+                                end
+                                break
+                            end
+                        end
+                    end
 
                     -- Draw a line from the entity owning this fluid box to each connection.
                     -- Queue each fluidbox+index that we haven't visited yet to be walked next pass.
@@ -254,12 +281,17 @@ local function trace_pipe(p, e, verbose)
                     if from.type == "pipe-to-ground" and to.type == "pipe-to-ground" then
                         dashed = true
                     end
+
                     if not dashed or finished[finishkey(to)] == nil then
                         -- Draw lines even if we've already visited entities, to fill in grids of pipes or tanks.
                         -- Just don't double-draw dashed lines, as that can mess them up.
-                        draw_line(from, to, s, p, dashed)
+                        local color = white
+                        if fluid_change then
+                            color = { 1, 0, 0 }
+                        end
+                        draw_line(from, to, s, p, color, dashed)
                     end
-                    if finished[finishkey(to)] == nil then
+                    if finished[finishkey(to)] == nil and not fluid_change then
                         for j = 1, #(connFB) do
                             if connFB.get_fluid_system_id(j) == system then
                                 -- connFB is all the fluid boxes in the connected entity, trace all of its fluid boxes in the same system.
