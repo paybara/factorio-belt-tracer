@@ -51,6 +51,8 @@ end
 
 local white = { 1, 1, 1 }
 
+local line_thickness = 1
+
 -- Draw a line between two entities, on surface s, visible to player.
 local function draw_line(from, to, s, player, color, dashed)
     local dash = 0
@@ -69,9 +71,9 @@ local function draw_line(from, to, s, player, color, dashed)
         ["to"] = to,
         -- TODO: Customize colors.
         ["color"] = color,
-        ["width"] = 1,            -- pixels
-        ["surface"] = s,          -- Draw on whatever surface the belts are on.
-        ["players"] = { player }, -- Only draw for the current player
+        ["width"] = line_thickness, -- pixels
+        ["surface"] = s,            -- Draw on whatever surface the belts are on.
+        ["players"] = { player },   -- Only draw for the current player
         ["dash_length"] = dash,
         ["gap_length"] = gap
     })
@@ -86,11 +88,11 @@ local function draw_circle(e, s, player)
         ["target"] = e,
         ["radius"] = .3,
         -- TODO: Customize colors.
-        ["color"] = { 1, 1, 1 },  --white
-        ["width"] = 1,            -- pixels
+        ["color"] = { 1, 1, 1 },    --white
+        ["width"] = line_thickness, -- pixels
         ["filled"] = false,
-        ["surface"] = s,          -- Draw on whatever surface the belts are on.
-        ["players"] = { player }, -- Only draw for the current player
+        ["surface"] = s,            -- Draw on whatever surface the belts are on.
+        ["players"] = { player },   -- Only draw for the current player
     })
 end
 
@@ -323,6 +325,7 @@ script.on_event('paybara:trace-belt', function(event)
     local p = game.players[event.player_index]
     local e = p.selected
     local verbose = settings.get_player_settings(event.player_index)["belttracer-verbose-logging"].value
+    line_thickness = settings.get_player_settings(event.player_index)["belttracer-line-thickness"].value
 
     if e and verbose then
         for _, over in pairs(e.surface.find_entities_filtered({ position = e.position })) do

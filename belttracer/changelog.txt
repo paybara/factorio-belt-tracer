@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.2
+Date: 2023.04.04
+  Features:
+    - Added a setting for trace thickness.
+  Changes:
+    - Increased the default trace thickness from 1/32 of a tile to 3/32.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.1
 Date: 2023.04.02
   Changes:
