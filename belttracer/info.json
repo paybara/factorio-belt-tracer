@@ -1,12 +1,12 @@
 {
   "name": "belttracer",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "factorio_version": "1.1",
   "title": "Belt Tracer",
   "author": "paybara",
   "contact": "https://github.com/paybara/factorio-belt-tracer/discussions",
   "homepage": "https://github.com/paybara/factorio-belt-tracer",
-  "description": "Highlight belts or pipes to trace them through your base",
+  "description": "Highlight belts, pipes or wires to trace them through your base. Hover over something and press Shift-H.",
   "dependencies": [
     "base >= 1.1.0"
   ]

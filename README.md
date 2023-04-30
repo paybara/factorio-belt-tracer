@@ -1,6 +1,8 @@
 # Belt Tracer mod for [factorio](https://www.factorio.com/)
 
-This is a simple mod for factorio to trace a belt or pipe through your base. Just hover over a belt or pipe and press the hotkey (default: `SHIFT-H` for "highlight"). Press it again somewhere else to clear the trace.
+This is a simple mod for factorio to trace a belt through your base. Just hover over a belt and press the hotkey (default: `SHIFT-H` for "highlight"). Press it again somewhere else to clear the trace.
+
+It also traces pipes and wires: hover over anything connected to pipes or wires and press the hotkey.
 
 Only the belts whose items might pass through the belt you selected, or might have passed through it, will be traced. For example, it won't trace a branch upstream that went in a different direction.
 
@@ -13,10 +15,13 @@ Only the belts whose items might pass through the belt you selected, or might ha
 ![8-to-8_2](/Screenshots/8-to-8_2.jpg)
 ![Modded](/Screenshots/Modded.jpg)
 
+TODO: Update screenshots for wires and thicker traces.
+
 ## Known/suspected issues
 
 * Traces aren't removed if you remove the belts under them.
 * I've not attempted to make this scalable, it currently traces the whole belt in the handler. It traces O(1000) length belts without a hiccup but I haven't tried it on a megabase.
+* Wires are only shown on the correct sides of the two vanilla combinators. They'll be shown in the center of any other entity that has multiple wire connection points.
 
 ## Potential improvements
 

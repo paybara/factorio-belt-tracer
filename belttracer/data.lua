@@ -1,4 +1,3 @@
-
 data:extend({
     {
         -- Keyboard shortcut to trace
@@ -12,10 +11,10 @@ data:extend({
         -- Invisible entity to attach the traces to and color the map.
         type = "simple-entity",
         name = "paybara-belttracer-trace",
-        picture = {filename = "__core__/graphics/empty.png", size=1},
+        picture = { filename = "__core__/graphics/empty.png", size = 1 },
         -- picture = {filename = "__belttracer__/graphics/dot.png", size=64},
         priority = "extra-high",
-        flags = {"not-blueprintable", "not-deconstructable", "hidden", "not-flammable"},
+        flags = { "not-blueprintable", "not-deconstructable", "hidden", "not-flammable" },
         selectable_in_game = false,
         mined_sound = nil,
         minable = nil,
@@ -27,6 +26,7 @@ data:extend({
         tile_height = 1,
         tile_width = 1,
         -- TODO: Figure out how to get traces to show on the map.
-        friendly_map_color = {1, 1, 1}, -- white
+        friendly_map_color = { 1, 1, 1 }, -- white
+        map_color = { 1, 1, 1 },
     },
 })
