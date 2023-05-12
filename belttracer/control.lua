@@ -38,7 +38,7 @@ end
 
 local function get_trace_entity(player, s, pos)
     local pos_str = position_to_string(pos)
-    e = global[global_entities(player)][pos_str]
+    local e = global[global_entities(player)][pos_str]
     if e == nil then
         e = s.create_entity({
             name = 'paybara-belttracer-trace',
@@ -53,8 +53,9 @@ local white = { 1, 1, 1 }
 
 local line_thickness = 1
 
--- Draw a line between two entities, on surface s, visible to player.
-local function draw_line(from, to, s, player, color, dashed)
+
+-- from_offset and to_offset are 2-element arrays with the x and y components.
+local function draw_line_offset(from, from_offset, to, to_offset, s, player, color, dashed)
     local dash = 0
     local gap = 0
     if dashed then
@@ -66,9 +67,11 @@ local function draw_line(from, to, s, player, color, dashed)
     -- That way the trace gets cleaned up if the mod is disabled.
     from = get_trace_entity(player, s, from.position)
     to = get_trace_entity(player, s, to.position)
-    local id = rendering.draw_line({
+    rendering.draw_line({
         ["from"] = from,
+        ["from_offset"] = from_offset,
         ["to"] = to,
+        ["to_offset"] = to_offset,
         -- TODO: Customize colors.
         ["color"] = color,
         ["width"] = line_thickness, -- pixels
@@ -79,18 +82,46 @@ local function draw_line(from, to, s, player, color, dashed)
     })
 end
 
+-- Draw a line between two entities, on surface s, visible to player.
+local function draw_line(from, to, s, player, color, dashed)
+    draw_line_offset(from, { 0, 0 }, to, { 0, 0 }, s, player, color, dashed)
+end
+
 -- Draw a small circle on entity e, on surface s, visible to player.
 local function draw_circle(e, s, player)
     -- Get or create a hidden entity at this location and draw the circle attached to it.
     -- That way the trace gets cleaned up if the mod is disabled.
     e = get_trace_entity(player, s, e.position)
-    local id = rendering.draw_circle({
+    rendering.draw_circle({
         ["target"] = e,
         ["radius"] = .3,
         -- TODO: Customize colors.
         ["color"] = { 1, 1, 1 },    --white
         ["width"] = line_thickness, -- pixels
         ["filled"] = false,
+        ["surface"] = s,            -- Draw on whatever surface the belts are on.
+        ["players"] = { player },   -- Only draw for the current player
+    })
+end
+
+-- Draw half of a circle on entity e, on surface s, visible to player.
+local function draw_half_dot(e, e_offset, s, player, color, top)
+    local pi = 3.1415
+    local start_angle = 0
+    if top == true then
+        start_angle = start_angle + pi
+    end
+    e = get_trace_entity(player, s, e.position)
+    rendering.draw_arc({
+        ["target"] = e,
+        ["target_offset"] = e_offset,
+        ["max_radius"] = .15,
+        ["min_radius"] = 0,
+        ["angle"] = pi,
+        ["start_angle"] = start_angle,
+        -- TODO: Customize colors.
+        ["color"] = color,
+        ["width"] = line_thickness, -- pixels
         ["surface"] = s,            -- Draw on whatever surface the belts are on.
         ["players"] = { player },   -- Only draw for the current player
     })
@@ -320,6 +351,191 @@ local function trace_pipe(p, e, verbose)
     end
 end
 
+local function has_wires(e)
+    if e.circuit_connection_definitions == nil then
+        return false
+    end
+    return #(e.circuit_connection_definitions) > 0
+end
+
+-- For debugging: Print wire-related information about an entity.
+local function wire_info(e)
+    local str = #e.circuit_connection_definitions .. " connected entities:"
+    for i, circuit in pairs(e.circuit_connection_definitions) do
+        str = str .. '\n' .. i .. ': '
+        if circuit == nil then
+            str = str .. "<nil circuit>"
+        else
+            local wire = "nil"
+            if circuit.wire ~= nil then
+                wire = circuit.wire
+            end
+            str = str .. 'wire:' .. wire
+            local entity = "nil"
+            if circuit.target_entity ~= nil then
+                entity = circuit.target_entity.name
+            end
+            str = str .. ", to: " .. entity
+            local source_circuit_id = "nil"
+            if circuit.source_circuit_id ~= nil then
+                source_circuit_id = circuit.source_circuit_id
+            end
+            str = str .. ", source_circuit_id: " .. source_circuit_id
+            local target_circuit_id = "nil"
+            if circuit.target_circuit_id ~= nil then
+                target_circuit_id = circuit.target_circuit_id
+            end
+            str = str .. ", target_circuit_id: " .. target_circuit_id
+        end
+    end
+    return str
+end
+
+-- connected_entity returns a tuple for an entity and a circuit_id that's connected to it,
+-- representing a wire connected to a specific connection point on an entity.
+local function connected_entity(e, id)
+    local ret = {}
+    ret["e"] = e
+    ret["id"] = id
+    return ret
+end
+
+local function direction_string(d)
+    if d == defines.direction.north then
+        return "north"
+    elseif d == defines.direction.northeast then
+        return "northeast"
+    elseif d == defines.direction.east then
+        return "east"
+    elseif d == defines.direction.southeast then
+        return "southeast"
+    elseif d == defines.direction.south then
+        return "south"
+    elseif d == defines.direction.southwest then
+        return "southwest"
+    elseif d == defines.direction.west then
+        return "west"
+    elseif d == defines.direction.northwest then
+        return "northwest"
+    end
+    return "unknown direction"
+end
+
+
+
+local function connection_offset(e, circuit_id, wire_type, p)
+    -- TODO: Draw lines from the connection points for all entities
+    --       Requested API at https://forums.factorio.com/viewtopic.php?f=28&t=106044
+
+    local combinator_offset_vectors = {
+        [defines.circuit_connector_id.combinator_input] = {
+            [defines.direction.east] = { -1, 0 },
+            [defines.direction.south] = { 0, -1 },
+        },
+        [defines.circuit_connector_id.combinator_output] = {
+            [defines.direction.north] = { 0, -1 },
+            [defines.direction.west] = { -1, 0 },
+        },
+    }
+
+    local offset = { 0, 0 }
+
+    -- This just hacks in support for the two vanilla combinators.
+    if e.name == 'arithmetic-combinator' or e.name == 'decider-combinator'
+    then
+        local combinator_offset = combinator_offset_vectors[circuit_id][e.direction]
+        if combinator_offset ~= nil then
+            offset = combinator_offset
+        end
+    end
+    return offset
+end
+
+local function line_offset(offset, wire_type)
+    -- Red to the north, green to the south.
+    if wire_type == defines.wire_type.green then
+        offset[2] = offset[2] + .1
+    else
+        offset[2] = offset[2] - .1
+    end
+    return offset
+end
+
+-- Intended to be called twice, once to draw lines and then again to draw the dots on top.
+local function trace_wires(p, e, verbose, drawDots)
+    if verbose then
+        p.print('Tracing wires for ' .. e.name .. ' (facing ' .. direction_string(e.direction) .. '): ' .. wire_info(e))
+    end
+
+    local s = e.surface
+    -- Leave a circle at the selected tile so you can see where you traced from.
+    draw_circle(e, s, p)
+
+    -- Set up the different groups to trace separately: each color from each connection point.
+    local wire_networks = {}
+    for i, circuit in pairs(e.circuit_connection_definitions) do
+        local wire_color = circuit.wire
+        if wire_networks[wire_color] == nil then
+            wire_networks[wire_color] = {}
+        end
+        local connections = wire_networks[wire_color]
+        local circuit_id = circuit.source_circuit_id
+        if connections[circuit_id] == nil then
+            connections[circuit_id] = connected_entity(e, circuit_id)
+        end
+    end
+
+    for wire_color, entities_by_circuit_id in pairs(wire_networks) do
+        local color = { .9, 0, 0 } -- red
+        local dot_top = true
+        if wire_color == defines.wire_type.green then
+            color = { 0, .9, 0 }
+            dot_top = false
+        end
+        for circuit_id, e_id in pairs(entities_by_circuit_id) do
+            local finished = { [finishkey(e)] = true }
+            local to_be_walked = { e_id }
+            while #to_be_walked > 0 do
+                local next_pass = {}
+                for _, from_id in pairs(to_be_walked) do
+                    local from = from_id.e
+                    for _, circuit in pairs(from.circuit_connection_definitions) do
+                        if circuit.wire == wire_color and circuit.source_circuit_id == from_id.id then
+                            local from_offset = connection_offset(from, from_id.id, p)
+                            local to = circuit.target_entity
+                            if drawDots then
+                                draw_half_dot(from, from_offset, s, p, color, dot_top)
+                            else
+                                draw_line_offset(from, line_offset(from_offset, wire_color),
+                                    to, line_offset(connection_offset(to, circuit.target_circuit_id, p), wire_color),
+                                    s, p, color, false)
+                            end
+                            if finished[finishkey(to)] == nil then
+                                next_pass[#next_pass + 1] = connected_entity(to, circuit.target_circuit_id)
+                                finished[finishkey(to)] = true
+                            end
+                        end
+                    end
+                end
+                to_be_walked = next_pass
+            end
+        end
+    end
+end
+
+-- local function dump(o)
+--     if type(o) == 'table' then
+--         local s = '{ '
+--         for k, v in pairs(o) do
+--             if type(k) ~= 'number' then k = '"' .. k .. '"' end
+--             s = s .. '[' .. k .. '] = ' .. dump(v) .. ','
+--         end
+--         return s .. '} '
+--     else
+--         return tostring(o)
+--     end
+-- end
+
 -- This is the main handler function, it runs whenever the trace action is triggered.
 script.on_event('paybara:trace-belt', function(event)
     local p = game.players[event.player_index]
@@ -343,13 +559,14 @@ script.on_event('paybara:trace-belt', function(event)
 
     if is_transport_line(e) then
         trace_belt(p, e, verbose)
-        return
-    end
-    if is_pipe(e) then
+    elseif is_pipe(e) then
         trace_pipe(p, e, verbose)
-        return
     end
-    if verbose then
-        p.print('Not over a belt or pipe. name: ' .. e.name .. ' type: ' .. e.type)
+    -- Draw wires last to put the dots on top.
+    if has_wires(e) then
+        -- Draw lines
+        trace_wires(p, e, verbose, false)
+        -- ...then draw dots
+        trace_wires(p, e, verbose, true)
     end
 end)
