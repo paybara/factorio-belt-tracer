@@ -2,7 +2,7 @@ data:extend({
     {
         -- Keyboard shortcut to trace
         type = "custom-input",
-        name = "paybara:trace-belt",
+        name = "paybara_trace-belt",
         key_sequence = "SHIFT + H",
         action = "lua",
         order = "a"
@@ -14,13 +14,13 @@ data:extend({
         picture = { filename = "__core__/graphics/empty.png", size = 1 },
         -- picture = {filename = "__belttracer__/graphics/dot.png", size=64},
         priority = "extra-high",
-        flags = { "not-blueprintable", "not-deconstructable", "hidden", "not-flammable" },
+        flags = { "not-blueprintable", "not-deconstructable", "not-flammable" },
+        hidden = true,
         selectable_in_game = false,
         mined_sound = nil,
         minable = nil,
         collision_box = nil,
         selection_box = nil,
-        collision_mask = {},
         render_layer = "explosion",
         vehicle_impact_sound = nil,
         tile_height = 1,
