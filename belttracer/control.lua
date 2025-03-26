@@ -32,19 +32,19 @@ end
 
 local function clear_all(player)
     local p_entities = global_entities(player)
-    destroy_all_entities(global[p_entities])
-    global[p_entities] = {}
+    destroy_all_entities(storage[p_entities])
+    storage[p_entities] = {}
 end
 
 local function get_trace_entity(player, s, pos)
     local pos_str = position_to_string(pos)
-    local e = global[global_entities(player)][pos_str]
+    local e = storage[global_entities(player)][pos_str]
     if e == nil then
         e = s.create_entity({
             name = 'paybara-belttracer-trace',
             position = pos,
         })
-        global[global_entities(player)][pos_str] = e
+        storage[global_entities(player)][pos_str] = e
     end
     return e
 end
@@ -56,6 +56,9 @@ local line_thickness = 1
 
 -- from_offset and to_offset are 2-element arrays with the x and y components.
 local function draw_line_offset(from, from_offset, to, to_offset, s, player, color, dashed)
+    if not from.valid or not to.valid then
+        return
+    end
     local dash = 0
     local gap = 0
     if dashed then
@@ -63,15 +66,16 @@ local function draw_line_offset(from, from_offset, to, to_offset, s, player, col
         dash = 0.1
         gap = 0.2
     end
+    -- Apply the offsets.
+    local from_position = { ["x"] = from.position.x + from_offset[1], ["y"] = from.position.y + from_offset[2] }
+    local to_position = { ["x"] = to.position.x + to_offset[1], ["y"] = to.position.y + to_offset[2] }
     -- Get or create hidden entities at each end of the line and draw the line attached to them.
     -- That way the trace gets cleaned up if the mod is disabled.
-    from = get_trace_entity(player, s, from.position)
-    to = get_trace_entity(player, s, to.position)
+    local from_trace_entity = get_trace_entity(player, s, from_position)
+    local to_trace_entity = get_trace_entity(player, s, to_position)
     rendering.draw_line({
-        ["from"] = from,
-        ["from_offset"] = from_offset,
-        ["to"] = to,
-        ["to_offset"] = to_offset,
+        ["from"] = from_trace_entity,
+        ["to"] = to_trace_entity,
         -- TODO: Customize colors.
         ["color"] = color,
         ["width"] = line_thickness, -- pixels
@@ -89,6 +93,9 @@ end
 
 -- Draw a small circle on entity e, on surface s, visible to player.
 local function draw_circle(e, s, player)
+    if not e.valid then
+        return
+    end
     -- Get or create a hidden entity at this location and draw the circle attached to it.
     -- That way the trace gets cleaned up if the mod is disabled.
     e = get_trace_entity(player, s, e.position)
@@ -105,30 +112,43 @@ local function draw_circle(e, s, player)
 end
 
 -- Draw half of a circle on entity e, on surface s, visible to player.
-local function draw_half_dot(e, e_offset, s, player, color, top)
-    local pi = 3.1415
-    local start_angle = 0
-    if top == true then
-        start_angle = start_angle + pi
+-- Actually queues up a dot to be drawn later.
+local function draw_half_dot(dots_to_draw, e, e_offset, color, top)
+    local d = {}
+    d["e"] = e
+    d["e_offset"] = e_offset
+    d["color"] = color
+    d["top"] = top
+    dots_to_draw[#dots_to_draw + 1] = d
+end
+
+-- Draw all dots that were queued up with draw_half_dot.
+local function draw_all_dots(dots_to_draw, s, player)
+    for _, d in pairs(dots_to_draw) do
+        local pi = 3.1415
+        local start_angle = 0
+        if d.top == true then
+            start_angle = start_angle + pi
+        end
+        local position = { ["x"] = d.e.position.x + d.e_offset[1], ["y"] = d.e.position.y + d.e_offset[2] }
+        local e = get_trace_entity(player, s, position)
+        rendering.draw_arc({
+            ["target"] = e,
+            ["max_radius"] = .15,
+            ["min_radius"] = 0,
+            ["angle"] = pi,
+            ["start_angle"] = start_angle,
+            -- TODO: Customize colors.
+            ["color"] = d.color,
+            ["width"] = line_thickness, -- pixels
+            ["surface"] = s,            -- Draw on whatever surface the belts are on.
+            ["players"] = { player },   -- Only draw for the current player
+        })
     end
-    e = get_trace_entity(player, s, e.position)
-    rendering.draw_arc({
-        ["target"] = e,
-        ["target_offset"] = e_offset,
-        ["max_radius"] = .15,
-        ["min_radius"] = 0,
-        ["angle"] = pi,
-        ["start_angle"] = start_angle,
-        -- TODO: Customize colors.
-        ["color"] = color,
-        ["width"] = line_thickness, -- pixels
-        ["surface"] = s,            -- Draw on whatever surface the belts are on.
-        ["players"] = { player },   -- Only draw for the current player
-    })
 end
 
 -- The string key for a table of finished belts or pipes.
-local function finishkey(entity)
+local function finish_key(entity)
     return position_to_string(entity.position)
 end
 
@@ -149,7 +169,7 @@ local function trace_belt(p, e, verbose)
         local to_be_walked = { e }
         -- Clear the finished list between passes:
         -- if something is both an input and an output it needs to be traversed both times.
-        local finished = { [finishkey(e)] = true }
+        local finished = { [finish_key(e)] = true }
         local keep_going = true
         while keep_going do
             local next_pass = {}
@@ -158,12 +178,13 @@ local function trace_belt(p, e, verbose)
             for _, edge in pairs(to_be_walked) do
                 -- Get the belts that are connected to this one as inputs or outputs (depending on which pass we're doing).
                 for _, n in pairs(edge.belt_neighbours[in_out]) do
-                    -- p.print(in_out.." belt_neighbor "..n.name.." at "..position_to_string(n.position))
-                    draw_line(edge, n, s, p, white, false)
-                    if finished[finishkey(n)] == nil then
-                        num_next = num_next + 1
-                        next_pass[num_next] = n
-                        finished[finishkey(n)] = true
+                    if n.type ~= "entity-ghost" then -- TODO: Trace ghosts. Right now, the traces would delete ghosts, which would be bad.
+                        draw_line(edge, n, s, p, white, false)
+                        if finished[finish_key(n)] == nil then
+                            num_next = num_next + 1
+                            next_pass[num_next] = n
+                            finished[finish_key(n)] = true
+                        end
                     end
                 end
                 -- Have to use plain 'neighbors' to get the other end of an underground belt
@@ -174,11 +195,11 @@ local function trace_belt(p, e, verbose)
                     local n = edge.neighbours
                     if n ~= nil then
                         -- p.print("neighbor "..n.name.." at "..position_to_string(n.position))
-                        if finished[finishkey(n)] == nil then
+                        if n.valid and finished[finish_key(n)] == nil then
                             draw_line(edge, n, s, p, white, true) -- dashed
                             num_next = num_next + 1
                             next_pass[num_next] = n
-                            finished[finishkey(n)] = true
+                            finished[finish_key(n)] = true
                         end
                     end
                 end
@@ -228,7 +249,7 @@ local function fbToStr(fb)
             end
             connStr = connStr .. "]"
         end
-        str = str .. " " .. fb.get_fluid_system_id(i) .. fluid .. "->" .. connStr
+        str = str .. " " .. fb.get_fluid_segment_id(i) .. fluid .. "->" .. connStr
     end
     return str
 end
@@ -251,7 +272,7 @@ local function trace_pipe(p, e, verbose)
     local fluid_systems = {}
     local num_systems = 0
     for i = 1, #(orig_fb) do
-        local system = orig_fb.get_fluid_system_id(i)
+        local system = orig_fb.get_fluid_segment_id(i)
         if system ~= nil and fluid_systems[system] == nil then
             fluid_systems[system] = i
             num_systems = num_systems + 1
@@ -264,10 +285,12 @@ local function trace_pipe(p, e, verbose)
     local num_entities = 1
     local num_steps = 1
 
+    local logged_fluid_change = false
+
     -- Trace each fluid system from the fluid box in the original entity.
     for system, i in pairs(fluid_systems) do
         local fluid_name = ""
-        local finished = { [finishkey(orig_fb.owner)] = true }
+        local finished = { [finish_key(orig_fb.owner)] = true }
         -- to_be_walked and next_pass are arrays of structs containing the elements:
         --   "fb" (for fluidbox)
         --   "i" (for index into the fluidbox, since the fluidbox is itself an array.)
@@ -294,46 +317,52 @@ local function trace_pipe(p, e, verbose)
                 -- Get all of that box's connections.
                 for _, connFB in pairs(fb.get_connections(fbi.i)) do
                     local to = connFB.owner
-                    local fluid_change = false
-                    if fluid_name ~= "" then
-                        for j = 1, #(connFB) do
-                            if connFB.get_fluid_system_id(j) == system and connFB[j] ~= nil and connFB[j].name ~= fluid_name then
-                                fluid_change = true
-                                if verbose then
-                                    p.print("Detected fluid_change from " ..
-                                        fluid_name .. " to " .. connFB[j].name .. " at " .. to.name)
+                    if to.type ~= "entity-ghost" then
+                        local fluid_change = false
+                        if fluid_name ~= "" then
+                            for j = 1, #(connFB) do
+                                if connFB.get_fluid_segment_id(j) == system and connFB[j] ~= nil and connFB[j].name ~= fluid_name then
+                                    fluid_change = true
+                                    if verbose and not logged_fluid_change then
+                                        logged_fluid_change = true
+                                        p.print("Detected first fluid_change from " ..
+                                            fluid_name .. " in:\n" .. fbToStr(fb) ..
+                                            "\n...to " .. connFB[j].name .. " at " .. to.name .. ":\n" .. fbToStr(connFB))
+                                    end
+                                    break
                                 end
-                                break
                             end
                         end
-                    end
 
-                    -- Draw a line from the entity owning this fluid box to each connection.
-                    -- Queue each fluidbox+index that we haven't visited yet to be walked next pass.
-                    local dashed = false
-                    if from.type == "pipe-to-ground" and to.type == "pipe-to-ground" then
-                        dashed = true
-                    end
-
-                    if not dashed or finished[finishkey(to)] == nil then
-                        -- Draw lines even if we've already visited entities, to fill in grids of pipes or tanks.
-                        -- Just don't double-draw dashed lines, as that can mess them up.
-                        local color = white
-                        if fluid_change then
-                            color = { 1, 0, 0 }
+                        -- Draw a line from the entity owning this fluid box to each connection.
+                        -- Queue each fluidbox+index that we haven't visited yet to be walked next pass.
+                        local dashed = false
+                        if from.type == "pipe-to-ground" and to.type == "pipe-to-ground" then
+                            dashed = true
                         end
-                        draw_line(from, to, s, p, color, dashed)
-                    end
-                    if finished[finishkey(to)] == nil and not fluid_change then
-                        for j = 1, #(connFB) do
-                            if connFB.get_fluid_system_id(j) == system then
-                                -- connFB is all the fluid boxes in the connected entity, trace all of its fluid boxes in the same system.
-                                num_next = num_next + 1
-                                next_pass[num_next] = box_index(connFB, j)
-                                -- p.print("Next: #" .. j .. " of " .. fbToStr(connFB))
+
+                        if not dashed or finished[finish_key(to)] == nil then
+                            -- Draw lines even if we've already visited entities, to fill in grids of pipes or tanks.
+                            -- Just don't double-draw dashed lines, as that can mess them up.
+                            local color = white
+                            if fluid_change then
+                                color = { 1, 0, 0 }
                             end
+                            draw_line(from, to, s, p, color, dashed)
                         end
-                        finished[finishkey(to)] = true
+                        if finished[finish_key(to)] == nil
+                            and not fluid_change
+                        then
+                            for j = 1, #(connFB) do
+                                if connFB.get_fluid_segment_id(j) == system then
+                                    -- connFB is all the fluid boxes in the connected entity, trace all of its fluid boxes in the same system.
+                                    num_next = num_next + 1
+                                    next_pass[num_next] = box_index(connFB, j)
+                                    -- p.print("Next: #" .. j .. " of " .. fbToStr(connFB))
+                                end
+                            end
+                            finished[finish_key(to)] = true
+                        end
                     end
                 end
             end
@@ -352,43 +381,79 @@ local function trace_pipe(p, e, verbose)
 end
 
 local function has_wires(e)
-    if e.circuit_connection_definitions == nil then
-        return false
+    return #(e.get_wire_connectors(false)) > 0
+end
+
+local combinator_offset_vectors = {
+    [defines.wire_connector_id.combinator_input_red] = {
+        [defines.direction.east] = { -1, 0 },
+    },
+    [defines.wire_connector_id.combinator_input_green] = {
+        [defines.direction.east] = { -1, 0 },
+    },
+    [defines.wire_connector_id.combinator_output_red] = {
+        [defines.direction.west] = { -1, 0 },
+    },
+    [defines.wire_connector_id.combinator_output_green] = {
+        [defines.direction.west] = { -1, 0 },
+    },
+}
+
+local function combinator_offset_string(wire_connector_id, dir)
+    local dir_map = combinator_offset_vectors[wire_connector_id]
+    if dir_map == nil then
+        return "nil"
     end
-    return #(e.circuit_connection_definitions) > 0
+    local offset = dir_map[dir]
+    if offset == nil then
+        return "dir_mismatch"
+    end
+    return "{" .. offset[1] .. "," .. offset[2] .. "}"
 end
 
 -- For debugging: Print wire-related information about an entity.
 local function wire_info(e)
-    local str = #e.circuit_connection_definitions .. " connected entities:"
-    for i, circuit in pairs(e.circuit_connection_definitions) do
-        str = str .. '\n' .. i .. ': '
+    local wire_color = {
+        [defines.wire_type.red] = "red",
+        [defines.wire_type.green] = "green",
+        [defines.wire_type.copper] = "copper"
+    }
+    local str = ""
+    local conn_count = 0
+    for i, circuit in pairs(e.get_wire_connectors(false)) do
         if circuit == nil then
             str = str .. "<nil circuit>"
         else
-            local wire = "nil"
-            if circuit.wire ~= nil then
-                wire = circuit.wire
+            local wire_connector_id = "nil"
+            if circuit.wire_connector_id ~= nil then
+                wire_connector_id = circuit.wire_connector_id
             end
-            str = str .. 'wire:' .. wire
-            local entity = "nil"
-            if circuit.target_entity ~= nil then
-                entity = circuit.target_entity.name
+            if (#circuit.connections > 0) then
+                conn_count = conn_count + 1
+                str = str .. '\n' .. i .. ': ' ..
+                    'wire_type:' ..
+                    wire_color[circuit.wire_type] ..
+                    ", wire_connector_id: " ..
+                    wire_connector_id ..
+                    "(offset:" .. combinator_offset_string(wire_connector_id, e.direction) .. ") to[\n"
+                for _, connection in pairs(circuit.connections) do
+                    local entity = "nil"
+                    if connection.target.owner ~= nil then
+                        entity = connection.target.owner
+                    end
+                    str = str ..
+                        " -> " ..
+                        entity.name ..
+                        ", target_circuit_id: " ..
+                        connection.target.wire_connector_id ..
+                        "(offset:" ..
+                        combinator_offset_string(connection.target.wire_connector_id, entity.direction) .. ")\n"
+                end
+                str = str .. "]\n"
             end
-            str = str .. ", to: " .. entity
-            local source_circuit_id = "nil"
-            if circuit.source_circuit_id ~= nil then
-                source_circuit_id = circuit.source_circuit_id
-            end
-            str = str .. ", source_circuit_id: " .. source_circuit_id
-            local target_circuit_id = "nil"
-            if circuit.target_circuit_id ~= nil then
-                target_circuit_id = circuit.target_circuit_id
-            end
-            str = str .. ", target_circuit_id: " .. target_circuit_id
         end
     end
-    return str
+    return str .. " (" .. conn_count .. " connections)"
 end
 
 -- connected_entity returns a tuple for an entity and a circuit_id that's connected to it,
@@ -423,32 +488,17 @@ end
 
 
 
-local function connection_offset(e, circuit_id, wire_type, p)
+local function connection_offset(e, circuit_id)
     -- TODO: Draw lines from the connection points for all entities
     --       Requested API at https://forums.factorio.com/viewtopic.php?f=28&t=106044
-
-    local combinator_offset_vectors = {
-        [defines.circuit_connector_id.combinator_input] = {
-            [defines.direction.east] = { -1, 0 },
-            [defines.direction.south] = { 0, -1 },
-        },
-        [defines.circuit_connector_id.combinator_output] = {
-            [defines.direction.north] = { 0, -1 },
-            [defines.direction.west] = { -1, 0 },
-        },
-    }
-
-    local offset = { 0, 0 }
-
-    -- This just hacks in support for the two vanilla combinators.
-    if e.name == 'arithmetic-combinator' or e.name == 'decider-combinator'
-    then
-        local combinator_offset = combinator_offset_vectors[circuit_id][e.direction]
+    local dir_map = combinator_offset_vectors[circuit_id]
+    if dir_map ~= nil then
+        local combinator_offset = dir_map[e.direction]
         if combinator_offset ~= nil then
-            offset = combinator_offset
+            return { combinator_offset[1], combinator_offset[2] }
         end
     end
-    return offset
+    return { 0, 0 }
 end
 
 local function line_offset(offset, wire_type)
@@ -461,10 +511,17 @@ local function line_offset(offset, wire_type)
     return offset
 end
 
--- Intended to be called twice, once to draw lines and then again to draw the dots on top.
-local function trace_wires(p, e, verbose, drawDots)
+local function trace_wires(p, e, verbose)
     if verbose then
-        p.print('Tracing wires for ' .. e.name .. ' (facing ' .. direction_string(e.direction) .. '): ' .. wire_info(e))
+        p.print('Tracing wires for ' ..
+            e.name ..
+            ' (at ' ..
+            e.position.x .. ',' .. e.position.y .. ' facing ' .. direction_string(e.direction) .. '): ' .. wire_info(e))
+    end
+
+    local e_wire_connectors = e.get_wire_connectors(false)
+    if e_wire_connectors == nil then
+        return
     end
 
     local s = e.surface
@@ -472,47 +529,71 @@ local function trace_wires(p, e, verbose, drawDots)
     draw_circle(e, s, p)
 
     -- Set up the different groups to trace separately: each color from each connection point.
+    -- wire_color (red|green) -> source_circuit_id (combinator in|out|other entity) -> e (this)
     local wire_networks = {}
-    for i, circuit in pairs(e.circuit_connection_definitions) do
-        local wire_color = circuit.wire
-        if wire_networks[wire_color] == nil then
-            wire_networks[wire_color] = {}
-        end
-        local connections = wire_networks[wire_color]
-        local circuit_id = circuit.source_circuit_id
-        if connections[circuit_id] == nil then
-            connections[circuit_id] = connected_entity(e, circuit_id)
+    for i, circuit in pairs(e_wire_connectors) do
+        if (circuit.valid and circuit.connection_count > 0) then
+            local wire_type = circuit.wire_type
+            if (wire_type ~= defines.wire_type.copper) then
+                if wire_networks[wire_type] == nil then
+                    wire_networks[wire_type] = {}
+                end
+                local connections = wire_networks[wire_type]
+                local circuit_id = circuit.wire_connector_id
+                if connections[circuit_id] == nil then
+                    connections[circuit_id] = connected_entity(e, circuit_id)
+                end
+            end
         end
     end
 
+    local dots_to_draw = {}
+    -- Trace each color
     for wire_color, entities_by_circuit_id in pairs(wire_networks) do
+        -- Pick the line color
         local color = { .9, 0, 0 } -- red
         local dot_top = true
         if wire_color == defines.wire_type.green then
             color = { 0, .9, 0 }
             dot_top = false
         end
+
+        -- Trace from each connection point ("circuit_id")
         for circuit_id, e_id in pairs(entities_by_circuit_id) do
-            local finished = { [finishkey(e)] = true }
+            -- Initialize our lists of entities that need to be walked and entities we've finished.
+            local finished = { [finish_key(e)] = true }
             local to_be_walked = { e_id }
             while #to_be_walked > 0 do
                 local next_pass = {}
                 for _, from_id in pairs(to_be_walked) do
                     local from = from_id.e
-                    for _, circuit in pairs(from.circuit_connection_definitions) do
-                        if circuit.wire == wire_color and circuit.source_circuit_id == from_id.id then
-                            local from_offset = connection_offset(from, from_id.id, p)
-                            local to = circuit.target_entity
-                            if drawDots then
-                                draw_half_dot(from, from_offset, s, p, color, dot_top)
-                            else
-                                draw_line_offset(from, line_offset(from_offset, wire_color),
-                                    to, line_offset(connection_offset(to, circuit.target_circuit_id, p), wire_color),
-                                    s, p, color, false)
-                            end
-                            if finished[finishkey(to)] == nil then
-                                next_pass[#next_pass + 1] = connected_entity(to, circuit.target_circuit_id)
-                                finished[finishkey(to)] = true
+                    for _, circuit in pairs(from.get_wire_connectors(false)) do
+                        if circuit.wire_type == wire_color and circuit.wire_connector_id == from_id.id then
+                            -- Hack in any offset to try to draw the lines from a decent spot for combinator inputs/outputs
+                            local from_offset = connection_offset(from, from_id.id)
+                            p.print("offset from " ..
+                                from.name .. "#" .. from_id.id .. "={" .. from_offset[1] .. "," .. from_offset[2] .. "}")
+
+                            -- Queue up dots to be drawn on this entity after all lines have been drawn.
+                            draw_half_dot(dots_to_draw, from, from_offset, color, dot_top)
+
+                            -- Draw a line to each connection.
+                            for _, connection in pairs(circuit.connections) do
+                                local to_connection = connection.target
+                                local to = to_connection.owner
+                                if to.type ~= "entity-ghost" then
+                                    draw_line_offset(from, line_offset(from_offset, wire_color),
+                                        to,
+                                        line_offset(
+                                            connection_offset(to, to_connection.wire_connector_id),
+                                            wire_color),
+                                        s, p, color, false)
+                                    -- Keep tracing the other side of the wire, if we haven't already.
+                                    if finished[finish_key(to)] == nil then
+                                        next_pass[#next_pass + 1] = connected_entity(to, to_connection.wire_connector_id)
+                                        finished[finish_key(to)] = true
+                                    end
+                                end
                             end
                         end
                     end
@@ -521,6 +602,8 @@ local function trace_wires(p, e, verbose, drawDots)
             end
         end
     end
+    -- Then go back and draw all the dots, now that all lines have been drawn.
+    draw_all_dots(dots_to_draw, s, p)
 end
 
 -- local function dump(o)
@@ -537,7 +620,7 @@ end
 -- end
 
 -- This is the main handler function, it runs whenever the trace action is triggered.
-script.on_event('paybara:trace-belt', function(event)
+script.on_event('paybara_trace-belt', function(event)
     local p = game.players[event.player_index]
     local e = p.selected
     local verbose = settings.get_player_settings(event.player_index)["belttracer-verbose-logging"].value
@@ -564,9 +647,6 @@ script.on_event('paybara:trace-belt', function(event)
     end
     -- Draw wires last to put the dots on top.
     if has_wires(e) then
-        -- Draw lines
-        trace_wires(p, e, verbose, false)
-        -- ...then draw dots
-        trace_wires(p, e, verbose, true)
+        trace_wires(p, e, verbose)
     end
 end)
