@@ -571,8 +571,6 @@ local function trace_wires(p, e, verbose)
                         if circuit.wire_type == wire_color and circuit.wire_connector_id == from_id.id then
                             -- Hack in any offset to try to draw the lines from a decent spot for combinator inputs/outputs
                             local from_offset = connection_offset(from, from_id.id)
-                            p.print("offset from " ..
-                                from.name .. "#" .. from_id.id .. "={" .. from_offset[1] .. "," .. from_offset[2] .. "}")
 
                             -- Queue up dots to be drawn on this entity after all lines have been drawn.
                             draw_half_dot(dots_to_draw, from, from_offset, color, dot_top)
