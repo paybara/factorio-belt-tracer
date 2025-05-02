@@ -23,6 +23,10 @@ TODO: Update screenshots for wires and thicker traces.
 * I've not attempted to make this scalable, it currently traces the whole belt in the handler. It traces O(1000) length belts without a hiccup but I haven't tried it on a megabase.
 * Wires are only shown on the correct sides of the two vanilla combinators. They'll be shown in the center of any other entity that has multiple wire connection points.
 
+New for 2.0:
+
+* Traces might clear ghosts and/or prevent ghosts from being placed.
+
 ## Potential improvements
 
 * Clear the current line when hovered over it.
@@ -35,7 +39,6 @@ TODO: Update screenshots for wires and thicker traces.
 * Better colors.
 * Better lines (e.g. should they be at the edges of the belts instead of the center? Curved to follow the belt curves? Shaped to match splitters?)
 * Maybe color-code by how full the belt is?
-* GUI, e.g. an extra panel when you click on a belt, with a button to trace it and maybe some other info. (Like it should be able to list the current belt contents, if that'd be useful.)
 
 Bug reports, suggestions or pull requests welcome in [discussions](https://github.com/paybara/factorio-belt-tracer/discussions) :-)
 
