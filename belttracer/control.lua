@@ -268,6 +268,9 @@ end
 
 -- trace_pipe traces pipes and other entities that hold fluid by walking their fluidbox connections.
 local function trace_pipe(p, e, verbose)
+    if e.type == "entity-ghost" then
+        return
+    end
     local s = e.surface
 
     -- Leave a circle at the selected tile so you can see where you traced from.
