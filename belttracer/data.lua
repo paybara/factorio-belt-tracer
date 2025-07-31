@@ -8,7 +8,7 @@ data:extend({
         order = "a"
     },
     {
-        -- Invisible entity to attach the traces to and color the map.
+        -- Invisible entity to attach the traces to (and hopefully color the map some day).
         type = "simple-entity",
         name = "paybara-belttracer-trace",
         picture = { filename = "__core__/graphics/empty.png", size = 1 },
@@ -20,7 +20,7 @@ data:extend({
         mined_sound = nil,
         minable = nil,
         collision_box = nil,
-        selection_box = nil,
+        collision_mask = { layers = {} },
         render_layer = "explosion",
         vehicle_impact_sound = nil,
         tile_height = 1,
